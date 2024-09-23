@@ -1,0 +1,87 @@
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <vector>
+#include <chrono>
+
+// Global data structures for producer-consumer scenario
+std::queue<int> dataQueue;            // Shared data queue
+std::mutex dataMutex;                 // Mutex to protect shared data
+std::condition_variable dataCondVar;  // Condition variable for synchronization
+
+bool finished = false; // Flag to indicate the end of processing
+
+// Function executed by the producer thread
+void producer(int producerID, int numItems) {
+    for (int i = 0; i < numItems; ++i) {
+        // Simulate data production
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Simulating time delay
+
+        // Lock mutex before modifying shared data
+        std::unique_lock<std::mutex> lock(dataMutex);
+        int data = producerID * 100 + i;
+        dataQueue.push(data);
+        std::cout << "Producer " << producerID << " produced: " << data << std::endl;
+
+        // Notify consumer thread
+        dataCondVar.notify_one();
+    }
+
+    // Indicate producer completion
+    std::unique_lock<std::mutex> lock(dataMutex);
+    finished = true;
+    dataCondVar.notify_all();
+}
+
+// Function executed by the consumer thread
+void consumer(int consumerID) {
+    while (true) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+
+        // Wait until data is available or processing is finished
+        dataCondVar.wait(lock, [] { return !dataQueue.empty() || finished; });
+
+        // Break the loop if processing is finished and the queue is empty
+        if (finished && dataQueue.empty()) {
+            break;
+        }
+
+        // Consume data from the queue
+        int data = dataQueue.front();
+        dataQueue.pop();
+        std::cout << "Consumer " << consumerID << " consumed: " << data << std::endl;
+    }
+}
+
+int main() {
+    int numProducers = 2;
+    int numConsumers = 2;
+    int itemsPerProducer = 5;
+
+    // Create producer threads
+    std::vector<std::thread> producers;
+    for (int i = 0; i < numProducers; ++i) {
+        producers.emplace_back(producer, i + 1, itemsPerProducer);
+    }
+
+    // Create consumer threads
+    std::vector<std::thread> consumers;
+    for (int i = 0; i < numConsumers; ++i) {
+        consumers.emplace_back(consumer, i + 1);
+    }
+
+    // Wait for all producer threads to complete
+    for (auto& producerThread : producers) {
+        producerThread.join();
+    }
+
+    // Wait for all consumer threads to complete
+    for (auto& consumerThread : consumers) {
+        consumerThread.join();
+    }
+
+    std::cout << "All processing completed." << std::endl;
+    return 0;
+}
